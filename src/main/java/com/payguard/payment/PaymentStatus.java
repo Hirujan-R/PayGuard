@@ -12,6 +12,8 @@ public enum PaymentStatus {
     SUCCEEDED,
     FAILED,
     PENDING_REVIEW,
+    /** Flagged by the fraud engine and subsequently declined by a human reviewer; never reached the bank. */
+    VOIDED,
     UNKNOWN,
     DEAD_LETTERED
 }

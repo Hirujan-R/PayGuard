@@ -109,7 +109,7 @@
 <script>
 const $ = id => document.getElementById(id);
 const col = {SUCCEEDED:'b-green', DEAD_LETTERED:'b-red', FAILED:'b-red', PENDING_REVIEW:'b-amber',
-             UNKNOWN:'b-purple', REPLAYED:'b-blue', PENDING:'b-muted', OPEN:'b-muted'};
+             UNKNOWN:'b-purple', VOIDED:'b-muted', REPLAYED:'b-blue', PENDING:'b-muted', OPEN:'b-muted'};
 const history = {succeeded:[], failed:[], labels:[]};
 let lastTotals = null;
 
@@ -172,7 +172,7 @@ async function refresh(){
       <td><span class="badge ${col[t.status]||'b-muted'}">${t.status}</span></td>
       <td>${t.accountId}</td><td>${money(t.amountMinor)}</td>
       <td class="note">${(t.fraudReasons||[]).join(', ') || t.failureReason || (t.refunded?'refunded':'')}</td>
-      <td>${t.status==='SUCCEEDED'&&!t.refunded?`<button class="actions" onclick="refund('${t.id}')">refund</button>`:''}</td>`;
+      <td>${t.status==='PENDING_REVIEW'?`<button class="actions" onclick="review('${t.id}','approve')">approve</button><button class="actions red" onclick="review('${t.id}','decline')">decline</button>`:''}${t.status==='SUCCEEDED'&&!t.refunded?`<button class="actions" onclick="refund('${t.id}')">refund</button>`:''}</td>`;
     tb.appendChild(tr);
   });
   history.labels.push(new Date().toLocaleTimeString());
@@ -182,6 +182,10 @@ async function refresh(){
 }
 async function refund(id){
   await api('/payments/'+id+'/refund', {method:'POST'}).then(()=>{ toast('refunded '+id); refresh(); }).catch(e=>toast(e.message));
+}
+async function review(id, decision){
+  await api('/admin/payments/'+id+'/'+decision, {method:'POST'})
+    .then(r=>{ toast(decision+' → '+r.status); refresh(); }).catch(e=>toast(e.message));
 }
 
 async function refreshDl(){

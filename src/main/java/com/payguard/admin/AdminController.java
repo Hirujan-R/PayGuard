@@ -11,6 +11,7 @@ import com.payguard.payment.PaymentDtos.PaymentResponse;
 import com.payguard.payment.PaymentStatus;
 import com.payguard.payment.PaymentTransaction;
 import com.payguard.payment.PaymentTransactionRepository;
+import com.payguard.payment.ReviewService;
 import com.payguard.reconciliation.ReconciliationRunner;
 import com.payguard.resilience.BankCallExecutor;
 import jakarta.validation.constraints.Max;
@@ -46,6 +47,7 @@ public class AdminController {
     private final DeadLetterRepository deadLetters;
     private final DeadLetterService deadLetterService;
     private final ReconciliationRunner reconciliationRunner;
+    private final ReviewService reviewService;
     private final RegionService regionService;
 
     public AdminController(PaymentTransactionRepository payments,
@@ -55,6 +57,7 @@ public class AdminController {
                            DeadLetterRepository deadLetters,
                            DeadLetterService deadLetterService,
                            ReconciliationRunner reconciliationRunner,
+                           ReviewService reviewService,
                            RegionService regionService) {
         this.payments = payments;
         this.simulationState = simulationState;
@@ -63,6 +66,7 @@ public class AdminController {
         this.deadLetters = deadLetters;
         this.deadLetterService = deadLetterService;
         this.reconciliationRunner = reconciliationRunner;
+        this.reviewService = reviewService;
         this.regionService = regionService;
     }
 
@@ -109,6 +113,18 @@ public class AdminController {
     @PostMapping("/dead-letter/{id}/replay")
     public PaymentResponse replayDeadLetter(@PathVariable UUID id) {
         return deadLetterService.replay(id);
+    }
+
+    /** Reviewer approves a fraud-flagged payment: charge it now. */
+    @PostMapping("/payments/{id}/approve")
+    public PaymentResponse approveReview(@PathVariable UUID id) {
+        return reviewService.approve(id);
+    }
+
+    /** Reviewer declines a fraud-flagged payment: void it, never contacting the bank. */
+    @PostMapping("/payments/{id}/decline")
+    public PaymentResponse declineReview(@PathVariable UUID id) {
+        return reviewService.decline(id);
     }
 
     /** Trigger a reconciliation pass on demand (also runs on a timer). */

@@ -1,11 +1,13 @@
 package com.payguard.integration;
 
 import com.payguard.bank.BankLedgerRepository;
+import com.payguard.common.exception.ConflictException;
 import com.payguard.payment.PaymentDtos.PaymentResponse;
 import com.payguard.payment.PaymentService;
 import com.payguard.payment.PaymentStatus;
 import com.payguard.payment.PaymentTransaction;
 import com.payguard.payment.PaymentTransactionRepository;
+import com.payguard.payment.ReviewService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
@@ -16,6 +18,7 @@ import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -28,6 +31,47 @@ class FraudFlowIntegrationTest extends AbstractIntegrationTest {
     @Autowired PaymentService paymentService;
     @Autowired PaymentTransactionRepository payments;
     @Autowired BankLedgerRepository ledger;
+    @Autowired ReviewService reviewService;
+
+    @Test
+    void approvedReviewChargesTheAccountOnce() {
+        String account = "acc_appr_" + System.nanoTime();
+        seedHistory(account, 6, 900, 1100, 16);
+
+        PaymentResponse flagged = paymentService.submit(
+                request(account, 500_000, "203.0.113.5"), "review-approve-" + System.nanoTime());
+        assertEquals(PaymentStatus.PENDING_REVIEW.name(), flagged.status());
+
+        PaymentResponse approved = reviewService.approve(java.util.UUID.fromString(flagged.id()));
+        assertEquals(PaymentStatus.SUCCEEDED.name(), approved.status());
+        assertTrue(approved.bankReference().startsWith("br_"));
+        assertEquals(1, ledger.findAll().stream()
+                .filter(e -> e.getAccountId().equals(account)).count());
+    }
+
+    @Test
+    void declinedReviewVoidsThePaymentAndNeverContactsTheBank() {
+        String account = "acc_decl_" + System.nanoTime();
+        seedHistory(account, 6, 900, 1100, 16);
+
+        PaymentResponse flagged = paymentService.submit(
+                request(account, 500_000, "203.0.113.5"), "review-decline-" + System.nanoTime());
+        assertEquals(PaymentStatus.PENDING_REVIEW.name(), flagged.status());
+
+        PaymentResponse declined = reviewService.decline(java.util.UUID.fromString(flagged.id()));
+        assertEquals(PaymentStatus.VOIDED.name(), declined.status());
+        assertEquals(0, ledger.findAll().stream()
+                .filter(e -> e.getAccountId().equals(account)).count());
+    }
+
+    @Test
+    void reviewOfNonReviewablePaymentIsRejected() {
+        PaymentResponse ok = paymentService.submit(
+                request("acc_rev_" + System.nanoTime(), 500, "203.0.113.5"), "review-guard-" + System.nanoTime());
+        assertEquals(PaymentStatus.SUCCEEDED.name(), ok.status());
+        assertThrows(ConflictException.class,
+                () -> reviewService.decline(java.util.UUID.fromString(ok.id())));
+    }
 
     @Test
     void amountOutsidePersonalHistoryGoesToReviewAndBankIsNeverCalled() {
