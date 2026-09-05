@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PayGuard — Payment Gateway Dashboard</title>
+<style>
+  :root { --bg:#0f1420; --panel:#161d2e; --line:#263049; --fg:#e6ebf5; --muted:#8b97ad;
+          --green:#2fd57a; --red:#ff5c5c; --amber:#ffb020; --blue:#4d9fff; --purple:#b07cff; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:14px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace; }
+  header { display:flex; align-items:center; gap:16px; padding:12px 20px; border-bottom:1px solid var(--line); background:var(--panel); }
+  header h1 { font-size:16px; margin:0; }
+  .badge { padding:2px 8px; border-radius:10px; font-size:11px; font-weight:700; }
+  .b-green{background:#133a26;color:var(--green);} .b-red{background:#3a1616;color:var(--red);}
+  .b-amber{background:#3a2c0f;color:var(--amber);} .b-blue{background:#0f2b4a;color:var(--blue);}
+  .b-purple{background:#2a1a45;color:var(--purple);} .b-muted{background:#232c40;color:var(--muted);}
+  .grid { display:grid; grid-template-columns:340px 1fr; gap:16px; padding:16px; }
+  .panel { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:14px; }
+  .panel h2 { margin:0 0 10px; font-size:13px; text-transform:uppercase; letter-spacing:.08em; color:var(--muted); }
+  label { display:block; color:var(--muted); font-size:12px; margin:8px 0 2px; }
+  input,select,button { width:100%; padding:7px 9px; margin:2px 0; border-radius:6px; border:1px solid var(--line);
+        background:#0d1322; color:var(--fg); font:inherit; }
+  button { cursor:pointer; border:1px solid #35508a; color:var(--blue); font-weight:600; }
+  button:hover { background:#152347; }
+  button.green{color:var(--green); border-color:#1f6b43;}
+  button.red{color:var(--red); border-color:#6b2323;}
+  button.amber{color:var(--amber); border-color:#6b5213;}
+  button.purple{color:var(--purple); border-color:#4a3274;}
+  .rowbtns { display:grid; grid-template-columns:1fr 1fr; gap:6px; }
+  .chip-row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-top:8px; font-size:12px; color:var(--muted);}
+  table { width:100%; border-collapse:collapse; font-size:12px; }
+  th,td { text-align:left; padding:5px 8px; border-bottom:1px solid var(--line); white-space:nowrap; }
+  th { color:var(--muted); font-weight:600; }
+  td.note { color:var(--muted); }
+  .actions button { width:auto; padding:3px 8px; margin-right:4px; }
+  .toast { position:fixed; bottom:16px; right:16px; max-width:420px; padding:10px 14px; border-radius:8px;
+        background:#1c2740; border:1px solid var(--line); display:none; }
+  canvas { width:100%; height:90px; }
+  .mono { font-size:12px; color:var(--fg); }
+</style>
+</head>
+<body>
+<header>
+  <h1>PayGuard</h1>
+  <span id="circuitBadge" class="badge b-muted">circuit: …</span>
+  <span id="modeBadge" class="badge b-muted">mode: …</span>
+  <span id="dlBadge" class="badge b-muted">dead-letter: …</span>
+</header>
+
+<div class="grid">
+  <div>
+    <div class="panel">
+      <h2>New payment</h2>
+      <label>Account</label><input id="account" value="acc_demo" placeholder="acc_xxx">
+      <label>Amount (minor units, e.g. pence)</label><input id="amount" type="number" value="5000">
+      <label>Payer region (fake geo-IP)</label>
+      <select id="ip">
+        <option value="203.0.113.10">UK</option>
+        <option value="198.51.100.10">US</option>
+        <option value="192.0.2.10">ASIA</option>
+      </select>
+      <label>Description</label><input id="desc" value="Order">
+      <button id="payBtn" class="green" style="margin-top:10px">Charge now</button>
+      <div class="chip-row" id="payResult"></div>
+    </div>
+
+    <div class="panel">
+      <h2>Bank simulator (watch the circuit breaker)</h2>
+      <div class="rowbtns">
+        <button class="green" onclick="setMode('NORMAL')">Healthy</button>
+        <button class="red" onclick="setMode('HARD_FAIL')">Hard fail</button>
+        <button class="amber" onclick="setMode('TIMEOUT')">Timeout</button>
+        <button class="purple" onclick="setMode('DROPPED_RESPONSE')">Lost response</button>
+      </div>
+      <div class="chip-row" style="margin-top:10px">
+        Chaos: <input id="chaosRate" type="number" min="0" max="100" value="0" style="width:64px"> %
+        <button style="width:auto" onclick="setChaos()">Apply</button>
+      </div>
+      <div class="chip-row">
+        <span id="simState"></span>
+      </div>
+      <button onclick="runRecon()" style="margin-top:8px">Run reconciliation now</button>
+    </div>
+
+    <div class="panel">
+      <h2>Throughput (last ~90s)</h2>
+      <canvas id="chart" width="600" height="180"></canvas>
+      <div class="chip-row"><span id="chartLegend"></span></div>
+    </div>
+  </div>
+
+  <div>
+    <div class="panel">
+      <h2>Live transactions</h2>
+      <table><thead><tr><th>time</th><th>status</th><th>account</th><th>amount</th><th>reason</th><th></th></tr></thead>
+      <tbody id="feed"></tbody></table>
+    </div>
+    <div class="panel" style="margin-top:16px">
+      <h2>Dead-letter queue</h2>
+      <table><thead><tr><th>created</th><th>attempts</th><th>last error</th><th></th></tr></thead>
+      <tbody id="dlFeed"></tbody></table>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const $ = id => document.getElementById(id);
+const col = {SUCCEEDED:'b-green', DEAD_LETTERED:'b-red', FAILED:'b-red', PENDING_REVIEW:'b-amber',
+             UNKNOWN:'b-purple', REPLAYED:'b-blue', PENDING:'b-muted', OPEN:'b-muted'};
+const history = {succeeded:[], failed:[], labels:[]};
+let lastTotals = null;
+
+function toast(msg){ const t=$('toast'); t.textContent=msg; t.style.display='block';
+  clearTimeout(t._h); t._h=setTimeout(()=>t.style.display='none', 4000); }
+
+async function api(url, opts){
+  const r = await fetch(url, opts);
+  const body = r.status===204 ? null : await r.json().catch(()=>null);
+  if(!r.ok){ throw new Error((body && (body.message || body.error)) || r.status); }
+  return body;
+}
+
+async function pay(){
+  try{
+    const body = { accountId: $('account').value, amountMinor: Number($('amount').value),
+                   currency:'GBP', description:$('desc').value, ipAddress:$('ip').value };
+    const res = await api('/payments', { method:'POST', headers:{'Content-Type':'application/json',
+                  'Idempotency-Key': crypto.randomUUID()}, body: JSON.stringify(body) });
+    $('payResult').innerHTML = `→ <b>${res.status}</b>` + (res.bankReference?` (${res.bankReference})`:'');
+    refresh(); refreshDl();
+  }catch(e){ toast('payment failed: '+e.message); }
+}
+
+async function setMode(mode){
+  try{ await api('/admin/simulator/mode?mode='+mode, {method:'POST'}); state(); toast('bank mode → '+mode); }
+  catch(e){ toast(e.message); }
+}
+async function setChaos(){
+  const v = Number($('chaosRate').value)/100;
+  await api('/admin/simulator/chaos', {method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({enabled: v>0, failureRate: v})}).then(state).catch(e=>toast(e.message));
+}
+async function runRecon(){
+  const s = await api('/admin/reconciliations/run', {method:'POST'}).catch(e=>toast(e.message));
+  if(s) toast(`reconciliation: matched=${s.matched} notFound=${s.notFound} orphaned=${s.orphaned}`);
+  refresh(); refreshDl();
+}
+
+async function state(){
+  const s = await api('/admin/simulator/state');
+  $('circuitBadge').textContent = 'circuit: '+s.circuitState;
+  $('circuitBadge').className = 'badge ' + (s.circuitState==='OPEN'?'b-red':s.circuitState==='HALF_OPEN'?'b-amber':'b-green');
+  $('modeBadge').textContent = 'bank: '+s.mode;
+  $('modeBadge').className = 'badge ' + (s.mode==='NORMAL'?'b-green':'b-amber');
+  $('dlBadge').textContent = 'dead-letter: '+s.deadLetterCount;
+  $('simState').textContent = `failure rate (window): ${s.circuitFailureRate.toFixed(1)}% · chaos: ${s.chaosEnabled?s.chaosRate*100:0}%`;
+}
+
+function money(minor){ return '£'+(minor/100).toFixed(2); }
+
+async function refresh(){
+  const rows = await api('/admin/transactions?limit=60');
+  const tb=$('feed'); tb.innerHTML='';
+  let tS=0,tF=0;
+  rows.forEach(t => {
+    tS += t.status==='SUCCEEDED'?1:0; tF += (t.status==='DEAD_LETTERED'||t.status==='FAILED')?1:0;
+    const tr=document.createElement('tr');
+    tr.innerHTML = `<td class="note">${new Date(t.createdAt).toLocaleTimeString()}</td>
+      <td><span class="badge ${col[t.status]||'b-muted'}">${t.status}</span></td>
+      <td>${t.accountId}</td><td>${money(t.amountMinor)}</td>
+      <td class="note">${(t.fraudReasons||[]).join(', ') || t.failureReason || (t.refunded?'refunded':'')}</td>
+      <td>${t.status==='SUCCEEDED'&&!t.refunded?`<button class="actions" onclick="refund('${t.id}')">refund</button>`:''}</td>`;
+    tb.appendChild(tr);
+  });
+  history.labels.push(new Date().toLocaleTimeString());
+  history.succeeded.push(tS); history.failed.push(tF);
+  if(history.labels.length>30){ history.labels.shift(); history.succeeded.shift(); history.failed.shift(); }
+  draw();
+}
+async function refund(id){
+  await api('/payments/'+id+'/refund', {method:'POST'}).then(()=>{ toast('refunded '+id); refresh(); }).catch(e=>toast(e.message));
+}
+
+async function refreshDl(){
+  const rows = await api('/admin/dead-letter');
+  const tb=$('dlFeed'); tb.innerHTML='';
+  rows.forEach(d => {
+    const tr=document.createElement('tr');
+    tr.innerHTML = `<td class="note">${new Date(d.createdAt).toLocaleTimeString()}</td>
+      <td>${d.attemptCount}</td><td class="note">${d.lastError||''}</td>
+      <td>${d.status==='OPEN'?`<button class="actions" onclick="replay('${d.id}')">replay</button>`:'<span class="badge b-blue">replayed</span>'}</td>`;
+    tb.appendChild(tr);
+  });
+}
+async function replay(id){
+  await api('/admin/dead-letter/'+id+'/replay', {method:'POST'})
+    .then(r=>{ toast('replayed → '+r.status); refresh(); refreshDl(); }).catch(e=>toast(e.message));
+}
+
+function draw(){
+  const c=$('chart'), ctx=c.getContext('2d');
+  ctx.clearRect(0,0,c.width,c.height);
+  const n=history.labels.length, w=c.width/n;
+  ctx.font='12px monospace';
+  const drawLine=(arr,color)=>{
+    ctx.strokeStyle=color; ctx.lineWidth=2; ctx.beginPath();
+    const max=Math.max(10,...arr);
+    arr.forEach((v,i)=>{ const x=i*w+w/2, y=c.height-10-(v/max)*(c.height-30);
+      i===0?ctx.moveTo(x,y):ctx.lineTo(x,y); });
+    ctx.stroke();
+  };
+  drawLine(history.succeeded,'#2fd57a');
+  drawLine(history.failed,'#ff5c5c');
+  $('chartLegend').textContent = '— succeeded   — failed/dead-lettered (per poll)';
+}
+
+$('payBtn').addEventListener('click', pay);
+state().catch(()=>{});
+refresh(); refreshDl();
+setInterval(()=>{ state().catch(()=>{}); refresh(); refreshDl(); }, 1500);
+</script>
+</body>
+</html>
