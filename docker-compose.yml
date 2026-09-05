@@ -1,0 +1,62 @@
+# PayGuard — local dev stack
+# Usage:  docker compose up --build
+# Extra SRE dashboards:  docker compose --profile observability up --build
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: payguard-db
+    environment:
+      POSTGRES_DB: payguard
+      POSTGRES_USER: payguard
+      POSTGRES_PASSWORD: payguard
+    ports:
+      # 5432 is commonly taken by other local Postgres projects; the app talks
+      # to db:5432 internally regardless, this is only for host-side tools.
+      - "5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U payguard -d payguard"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  app:
+    build: .
+    container_name: payguard-app
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DB_URL: jdbc:postgresql://db:5432/payguard
+      DB_USER: payguard
+      DB_PASSWORD: payguard
+    ports:
+      - "8080:8080"
+
+  # ---- optional SRE observability (local only, docker compose --profile observability up)
+  prometheus:
+    image: prom/prometheus:v2.53.0
+    container_name: payguard-prometheus
+    profiles: ["observability"]
+    volumes:
+      - ./observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9090:9090"
+
+  grafana:
+    image: grafana/grafana:11.1.0
+    container_name: payguard-grafana
+    profiles: ["observability"]
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: admin
+    volumes:
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
+
+volumes:
+  pgdata:
