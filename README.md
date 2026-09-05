@@ -53,6 +53,15 @@ Send the *same* request again and observe the identical response — no second c
 
 ---
 
+## Screenshots
+
+| | |
+|---|---|
+| ![PayGuard live dashboard](screenshots/payguard-dashboard.png) | **Live dashboard** — submit payments, watch statuses change, and flip the bank simulator to watch the circuit breaker open and dead letters queue for replay. |
+| ![Grafana payment metrics](screenshots/grafana-metrics.png) | **Grafana** — payment outcomes charted from the app's Prometheus metrics (run with `docker compose --profile observability up`). |
+
+---
+
 ## What each piece is for
 
 | Component | Real-world concern |
