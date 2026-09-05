@@ -1,10 +1,10 @@
 # PayGuard — A Reliable, Fraud-Aware Payment Gateway
 
 A **local-only** Java backend that simulates how a real payment processor moves
-money safely: Stripe-style transaction correctness (idempotency keys, refunds,
-an auditable ledger, an explainable fraud screen) glued to Google-SRE-style
-reliability engineering (circuit breaker, retry with exponential backoff,
-dead-letter queue, health/metrics endpoints, structured failure handling).
+money safely: payment-correctness mechanics (idempotency keys, refunds, an
+auditable ledger, an explainable fraud screen) combined with site-reliability
+engineering (circuit breaker, retry with exponential backoff, dead-letter
+queue, health/metrics endpoints, structured failure handling).
 
 > Money must be *correct under failure* — that is what this project is built to
 > demonstrate, not to deploy. Everything runs on your machine via Docker.
@@ -53,16 +53,16 @@ Send the *same* request again and observe the identical response — no second c
 
 ---
 
-## What each piece is for (and the map to SRE/Stripe vocabulary)
+## What each piece is for
 
 | Component | Real-world concern |
 |---|---|
-| DB-backed idempotency keys, refunds, immutable ledger | Stripe "programmable financial infrastructure" |
-| Explainable fraud rules (velocity, amount z-score, geo-jump) | Stripe "generalized anomaly detection" |
-| Resilience4j circuit breaker + retry/backoff around the bank simulator | SRE: failing fast to protect the system |
-| `/actuator/health`, `/actuator/prometheus`, custom Micrometer metrics | SRE: monitoring, metrics, alerting |
-| Dead-letter table + manual replay | SRE: incident handling, keeping business-critical systems up |
-| Failure-injection tests | "code-level troubleshooting", "good test coverage" |
+| DB-backed idempotency keys, refunds, immutable ledger | Money movement must be exactly-once and auditable |
+| Explainable fraud rules (velocity, amount z-score, geo-jump) | Fraud controls anyone can understand and override |
+| Resilience4j circuit breaker + retry/backoff around the bank simulator | Failing fast to protect the system |
+| `/actuator/health`, `/actuator/prometheus`, custom Micrometer metrics | Monitoring, metrics and alerting |
+| Dead-letter table + manual replay | Incident handling — keep business-critical systems moving |
+| Failure-injection tests | Verifying correct behaviour under dependency faults |
 
 ### API surface
 
@@ -74,6 +74,8 @@ Send the *same* request again and observe the identical response — no second c
 | `GET /admin/transactions` | Recent-transaction feed (dashboard) |
 | `GET /admin/dead-letter` | Failed transactions awaiting a decision |
 | `POST /admin/dead-letter/{id}/replay` | Re-submit a dead-lettered charge |
+| `POST /admin/payments/{id}/approve` | Reviewer approves a fraud-flagged payment (charges it) |
+| `POST /admin/payments/{id}/decline` | Reviewer voids a fraud-flagged payment (bank never called) |
 | `POST /admin/simulator/mode?mode=...` | `NORMAL` / `HARD_FAIL` / `TIMEOUT` / `DROPPED_RESPONSE` |
 | `POST /admin/simulator/chaos` | Inject random failures at a rate |
 | `POST /admin/reconciliations/run` | Run the reconciliation job on demand |
@@ -82,8 +84,20 @@ Send the *same* request again and observe the identical response — no second c
 
 ### Transaction statuses
 
-`SUCCEEDED` · `PENDING_REVIEW` (fraud) · `UNKNOWN` (settled, response lost) ·
-`DEAD_LETTERED` (needs replay) · `FAILED` (definitively not charged).
+`SUCCEEDED` · `PENDING_REVIEW` (fraud, waiting for a human decision) ·
+`VOIDED` (declined in review, never charged) · `UNKNOWN` (settled, response
+lost) · `DEAD_LETTERED` (needs replay) · `FAILED` (definitively not charged).
+
+### Manual review
+
+When the fraud engine flags a transaction it routes it to `PENDING_REVIEW`
+**before** the bank is called, so no money moves until a human decides:
+
+- **Approve** (`POST /admin/payments/{id}/approve`) — the reviewer overrides
+  the flag and the payment is charged now; if the bank is unhealthy the usual
+  dead-letter and reconciliation paths still apply.
+- **Decline** (`POST /admin/payments/{id}/decline`) — the payment is voided
+  and the bank is never contacted.
 
 ---
 
