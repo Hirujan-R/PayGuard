@@ -15,8 +15,8 @@
   .b-green{background:#133a26;color:var(--green);} .b-red{background:#3a1616;color:var(--red);}
   .b-amber{background:#3a2c0f;color:var(--amber);} .b-blue{background:#0f2b4a;color:var(--blue);}
   .b-purple{background:#2a1a45;color:var(--purple);} .b-muted{background:#232c40;color:var(--muted);}
-  .grid { display:grid; grid-template-columns:340px 1fr; gap:16px; padding:16px; }
-  .panel { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:14px; }
+  .grid { display:grid; grid-template-columns:340px minmax(0,1fr); gap:16px; padding:16px; }
+  .panel { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:14px; min-width:0; overflow-x:auto; }
   .panel h2 { margin:0 0 10px; font-size:13px; text-transform:uppercase; letter-spacing:.08em; color:var(--muted); }
   label { display:block; color:var(--muted); font-size:12px; margin:8px 0 2px; }
   input,select,button { width:100%; padding:7px 9px; margin:2px 0; border-radius:6px; border:1px solid var(--line);
@@ -33,7 +33,8 @@
   th,td { text-align:left; padding:5px 8px; border-bottom:1px solid var(--line); white-space:nowrap; }
   th { color:var(--muted); font-weight:600; }
   td.note { color:var(--muted); }
-  .actions button { width:auto; padding:3px 8px; margin-right:4px; }
+  td.reason { color:var(--muted); white-space:normal; word-break:break-word; max-width:260px; }
+  .actions { width:auto !important; display:inline-block; padding:3px 8px; margin:2px 4px 2px 0; }
   .toast { position:fixed; bottom:16px; right:16px; max-width:420px; padding:10px 14px; border-radius:8px;
         background:#1c2740; border:1px solid var(--line); display:none; }
   canvas { width:100%; height:90px; }
@@ -171,7 +172,7 @@ async function refresh(){
     tr.innerHTML = `<td class="note">${new Date(t.createdAt).toLocaleTimeString()}</td>
       <td><span class="badge ${col[t.status]||'b-muted'}">${t.status}</span></td>
       <td>${t.accountId}</td><td>${money(t.amountMinor)}</td>
-      <td class="note">${(t.fraudReasons||[]).join(', ') || t.failureReason || (t.refunded?'refunded':'')}</td>
+      <td class="reason">${(t.fraudReasons||[]).join(', ') || t.failureReason || (t.refunded?'refunded':'')}</td>
       <td>${t.status==='PENDING_REVIEW'?`<button class="actions" onclick="review('${t.id}','approve')">approve</button><button class="actions red" onclick="review('${t.id}','decline')">decline</button>`:''}${t.status==='SUCCEEDED'&&!t.refunded?`<button class="actions" onclick="refund('${t.id}')">refund</button>`:''}</td>`;
     tb.appendChild(tr);
   });
@@ -194,7 +195,7 @@ async function refreshDl(){
   rows.forEach(d => {
     const tr=document.createElement('tr');
     tr.innerHTML = `<td class="note">${new Date(d.createdAt).toLocaleTimeString()}</td>
-      <td>${d.attemptCount}</td><td class="note">${d.lastError||''}</td>
+      <td>${d.attemptCount}</td>      <td class="reason">${d.lastError||''}</td>
       <td>${d.status==='OPEN'?`<button class="actions" onclick="replay('${d.id}')">replay</button>`:'<span class="badge b-blue">replayed</span>'}</td>`;
     tb.appendChild(tr);
   });
